@@ -1,0 +1,29 @@
+#! /usr/bin/python
+
+"""
+Recalculates the cksum of the schema, and pretty print
+the schema.
+"""
+
+import json
+import subprocess
+import sys
+from collections import OrderedDict
+
+def modify_cksum(file_name, dst):
+    with open(file_name) as x: f = x.read()
+    ovsschema = json.loads(f, object_pairs_hook=OrderedDict)
+    if 'cksum' in ovsschema:
+        ovsschema.pop('cksum')
+    cksum = subprocess.Popen(["cksum"], stdout=subprocess.PIPE,
+                                        stdin=subprocess.PIPE)
+    output, error = cksum.communicate(
+            input=json.dumps(ovsschema, indent=4, separators=(',', ': '))
+        )
+    output = output.rstrip().lstrip()
+    ovsschema = OrderedDict([('cksum', output)] + ovsschema.items())
+    with open(dst, 'w') as fp:
+        json.dump(ovsschema, fp, indent=4, separators=(',', ': '))
+
+if __name__ == '__main__':
+    modify_cksum(sys.argv[1], sys.argv[2])

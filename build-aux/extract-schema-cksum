@@ -1,0 +1,12 @@
+#! /usr/bin/python
+
+import json
+import sys
+
+def extract_cksum(file_name):
+    with open(file_name) as x: f = x.read()
+    ovsschema = json.loads(f)
+    print ovsschema.get("cksum", "")
+
+if __name__ == '__main__':
+    extract_cksum(sys.argv[1])
