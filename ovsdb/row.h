@@ -39,6 +39,7 @@ struct ovsdb_weak_ref {
     struct ovs_list src_node;   /* In src->src_refs list. */
     struct ovs_list dst_node;   /* In destination row's dst_refs list. */
     struct ovsdb_row *src;      /* Source row. */
+    struct ovsdb_row *dst;      /* Destination row. */
 };
 
 /* A row in a database table. */

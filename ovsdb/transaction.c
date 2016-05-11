@@ -405,6 +405,7 @@ static struct ovsdb_error *
 ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
                      struct ovsdb_txn_row *txn_row)
 {
+    struct ovsdb_weak_ref *weak, *next;
     size_t n_indexes = txn_row->table->schema->n_indexes;
 
     if (txn_row->old) {
@@ -414,13 +415,36 @@ ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
             struct hmap_node *node = ovsdb_row_get_index_node(txn_row->old, i);
             hmap_remove(&txn_row->table->indexes[i], node);
         }
+
+        LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->old->src_refs) {
+            ovs_list_remove(&weak->src_node);
+            ovs_list_remove(&weak->dst_node);
+            free(weak);
+        }
     }
+
+    if (txn_row->old && txn_row->new) {
+        /* Move the incoming weak references from old to new */
+        LIST_FOR_EACH_SAFE (weak, next, dst_node, &txn_row->old->dst_refs) {
+            if (!weak->src->txn_row) {
+                ovs_list_remove(&weak->dst_node);
+                ovs_list_insert(&txn_row->new->dst_refs, &weak->dst_node);
+                weak->dst = txn_row->new;
+                weak->src = weak->src->txn_row ? weak->src->txn_row->new : weak->src;
+            }
+        }
+    }
+
     if (txn_row->new) {
         size_t i;
 
         for (i = 0; i < n_indexes; i++) {
             struct hmap_node *node = ovsdb_row_get_index_node(txn_row->new, i);
             hmap_insert(&txn_row->table->indexes[i], node, node->hash);
+        }
+
+        LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->new->src_refs) {
+            ovs_list_insert(&weak->dst->dst_refs, &weak->dst_node);
         }
     }
 
@@ -435,7 +459,7 @@ ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
 }
 
 static void
-add_weak_ref(struct ovsdb_txn *txn,
+add_weak_ref(struct ovsdb_txn *txn OVS_UNUSED,
              const struct ovsdb_row *src_, const struct ovsdb_row *dst_)
 {
     struct ovsdb_row *src = CONST_CAST(struct ovsdb_row *, src_);
@@ -446,7 +470,7 @@ add_weak_ref(struct ovsdb_txn *txn,
         return;
     }
 
-    dst = ovsdb_txn_row_modify(txn, dst);
+    //dst = ovsdb_txn_row_modify(txn, dst);
 
     if (!ovs_list_is_empty(&dst->dst_refs)) {
         /* Omit duplicates. */
@@ -459,7 +483,10 @@ add_weak_ref(struct ovsdb_txn *txn,
 
     weak = xmalloc(sizeof *weak);
     weak->src = src;
-    ovs_list_push_back(&dst->dst_refs, &weak->dst_node);
+    weak->dst = dst;
+    //ovs_list_push_back(&dst->dst_refs, &weak->dst_node);
+    /* The dst_refs list is updated at commit time */
+    ovs_list_init(&weak->dst_node);
     ovs_list_push_back(&src->src_refs, &weak->src_node);
 }
 
@@ -469,7 +496,7 @@ assess_weak_refs(struct ovsdb_txn *txn, struct ovsdb_txn_row *txn_row)
     struct ovsdb_table *table;
     struct shash_node *node;
 
-    if (txn_row->old) {
+    if (txn_row->old && !txn_row->new) {
         /* Mark rows that have weak references to 'txn_row' as modified, so
          * that their weak references will get reassessed. */
         struct ovsdb_weak_ref *weak, *next;
