@@ -470,8 +470,6 @@ add_weak_ref(struct ovsdb_txn *txn OVS_UNUSED,
         return;
     }
 
-    //dst = ovsdb_txn_row_modify(txn, dst);
-
     if (!ovs_list_is_empty(&dst->dst_refs)) {
         /* Omit duplicates. */
         weak = CONTAINER_OF(ovs_list_back(&dst->dst_refs),
@@ -484,7 +482,6 @@ add_weak_ref(struct ovsdb_txn *txn OVS_UNUSED,
     weak = xmalloc(sizeof *weak);
     weak->src = src;
     weak->dst = dst;
-    //ovs_list_push_back(&dst->dst_refs, &weak->dst_node);
     /* The dst_refs list is updated at commit time */
     ovs_list_init(&weak->dst_node);
     ovs_list_push_back(&src->src_refs, &weak->src_node);
