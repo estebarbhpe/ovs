@@ -449,13 +449,16 @@ ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
     }
 
     if (txn_row->old && txn_row->new) {
+        /* Move the list*/
+        txn_row->old->dst_refs.prev->next = txn_row->new->dst_refs.next;
+        txn_row->new->dst_refs.next->prev = txn_row->old->dst_refs.prev->next;
+        txn_row->new->dst_refs.next = txn_row->old->dst_refs.next;
+        txn_row->new->dst_refs.next->prev = &txn_row->new->dst_refs;
+        ovs_list_init(&txn_row->old->dst_refs);
         /* Move the incoming weak references from old to new */
-        LIST_FOR_EACH_SAFE (weak, next, dst_node, &txn_row->old->dst_refs) {
+        LIST_FOR_EACH_SAFE (weak, next, dst_node, &txn_row->new->dst_refs) {
             if (!weak->src->txn_row) {
-                ovs_list_remove(&weak->dst_node);
-                ovs_list_insert(&txn_row->new->dst_refs, &weak->dst_node);
                 weak->dst = txn_row->new;
-                weak->src = weak->src->txn_row ? weak->src->txn_row->new : weak->src;
             }
         }
     }
