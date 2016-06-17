@@ -405,7 +405,6 @@ static struct ovsdb_error *
 ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
                      struct ovsdb_txn_row *txn_row)
 {
-    struct ovsdb_weak_ref *weak, *next;
     size_t n_indexes = txn_row->table->schema->n_indexes;
 
     if (txn_row->old) {
@@ -415,7 +414,33 @@ ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
             struct hmap_node *node = ovsdb_row_get_index_node(txn_row->old, i);
             hmap_remove(&txn_row->table->indexes[i], node);
         }
+    }
+    if (txn_row->new) {
+        size_t i;
 
+        for (i = 0; i < n_indexes; i++) {
+            struct hmap_node *node = ovsdb_row_get_index_node(txn_row->new, i);
+            hmap_insert(&txn_row->table->indexes[i], node, node->hash);
+        }
+    }
+
+    ovsdb_txn_row_prefree(txn_row);
+    if (txn_row->new) {
+        txn_row->new->n_refs = txn_row->n_refs;
+    }
+    ovsdb_row_destroy(txn_row->old);
+    free(txn_row);
+
+    return NULL;
+}
+
+static struct ovsdb_error *
+ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
+                           struct ovsdb_txn_row *txn_row)
+{
+    struct ovsdb_weak_ref *weak, *next;
+
+    if (txn_row->old) {
         LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->old->src_refs) {
             ovs_list_remove(&weak->src_node);
             ovs_list_remove(&weak->dst_node);
@@ -436,24 +461,10 @@ ovsdb_txn_row_commit(struct ovsdb_txn *txn OVS_UNUSED,
     }
 
     if (txn_row->new) {
-        size_t i;
-
-        for (i = 0; i < n_indexes; i++) {
-            struct hmap_node *node = ovsdb_row_get_index_node(txn_row->new, i);
-            hmap_insert(&txn_row->table->indexes[i], node, node->hash);
-        }
-
         LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->new->src_refs) {
             ovs_list_insert(&weak->dst->dst_refs, &weak->dst_node);
         }
     }
-
-    ovsdb_txn_row_prefree(txn_row);
-    if (txn_row->new) {
-        txn_row->new->n_refs = txn_row->n_refs;
-    }
-    ovsdb_row_destroy(txn_row->old);
-    free(txn_row);
 
     return NULL;
 }
@@ -860,6 +871,7 @@ ovsdb_txn_commit_(struct ovsdb_txn *txn, bool durable)
 
     /* Finalize commit. */
     txn->db->run_triggers = true;
+    ovsdb_error_assert(for_each_txn_row(txn, ovsdb_txn_update_weak_refs));
     ovsdb_error_assert(for_each_txn_row(txn, ovsdb_txn_row_commit));
     ovsdb_txn_free(txn);
 
