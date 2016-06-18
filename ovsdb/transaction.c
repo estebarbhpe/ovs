@@ -458,17 +458,16 @@ ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
     if (txn_row->old && txn_row->new) {
         /* Move the incoming weak references from old to new */
         ovs_list_transplant(&txn_row->new->dst_refs, &txn_row->old->dst_refs);
-        LIST_FOR_EACH_SAFE (weak, next, dst_node, &txn_row->new->dst_refs) {
-            if (!weak->src->txn_row) {
-                weak->dst = txn_row->new;
-            }
-        }
     }
 
     /* Insert the weak references originating in the new version of the row */
+    struct ovsdb_row *dst_row;
     if (txn_row->new) {
         LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->new->src_refs) {
-            ovs_list_insert(&weak->dst->dst_refs, &weak->dst_node);
+            /* dst_row MUST exist */
+            dst_row = CONST_CAST(struct ovsdb_row *,
+                    ovsdb_table_get_row(weak->dst_table, &weak->dst));
+            ovs_list_insert(&dst_row->dst_refs, &weak->dst_node);
         }
     }
 
@@ -498,7 +497,8 @@ add_weak_ref(struct ovsdb_txn *txn OVS_UNUSED,
 
     weak = xmalloc(sizeof *weak);
     weak->src = src;
-    weak->dst = dst;
+    weak->dst_table = dst->table;
+    memcpy(&weak->dst, ovsdb_row_get_uuid(dst), sizeof(struct uuid));
     /* The dst_refs list is updated at commit time */
     ovs_list_init(&weak->dst_node);
     ovs_list_push_back(&src->src_refs, &weak->src_node);
