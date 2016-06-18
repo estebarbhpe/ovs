@@ -440,6 +440,7 @@ ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
 {
     struct ovsdb_weak_ref *weak, *next;
 
+    /* Remove the weak references originating in the old version of the row */
     if (txn_row->old) {
         LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->old->src_refs) {
             ovs_list_remove(&weak->src_node);
@@ -448,14 +449,15 @@ ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
         }
     }
 
+    /* Although the originating rows have the responsability of updating the
+     * weak references in the dst, is possible that some source rows aren't
+     * part of the transaction.
+     * In that situation this row needs to move the list of incoming weak
+     * references from the old row into the new one.
+     */
     if (txn_row->old && txn_row->new) {
-        /* Move the list*/
-        txn_row->old->dst_refs.prev->next = txn_row->new->dst_refs.next;
-        txn_row->new->dst_refs.next->prev = txn_row->old->dst_refs.prev->next;
-        txn_row->new->dst_refs.next = txn_row->old->dst_refs.next;
-        txn_row->new->dst_refs.next->prev = &txn_row->new->dst_refs;
-        ovs_list_init(&txn_row->old->dst_refs);
         /* Move the incoming weak references from old to new */
+        ovs_list_transplant(&txn_row->new->dst_refs, &txn_row->old->dst_refs);
         LIST_FOR_EACH_SAFE (weak, next, dst_node, &txn_row->new->dst_refs) {
             if (!weak->src->txn_row) {
                 weak->dst = txn_row->new;
@@ -463,6 +465,7 @@ ovsdb_txn_update_weak_refs(struct ovsdb_txn *txn OVS_UNUSED,
         }
     }
 
+    /* Insert the weak references originating in the new version of the row */
     if (txn_row->new) {
         LIST_FOR_EACH_SAFE (weak, next, src_node, &txn_row->new->src_refs) {
             ovs_list_insert(&weak->dst->dst_refs, &weak->dst_node);
