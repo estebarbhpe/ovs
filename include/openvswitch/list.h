@@ -298,10 +298,15 @@ ovs_list_transplant(const struct ovs_list *dst_, const struct ovs_list *src_)
     struct ovs_list *src, *dst;
     src = CONST_CAST(struct ovs_list *, src_);
     dst = CONST_CAST(struct ovs_list *, dst_);
-    src->prev->next = dst->next;
-    dst->next->prev = src->prev->next;
-    dst->next = src->next; //
-    dst->next->prev = dst; //
+
+    /* Chain last element of dst with first of src */
+    src->next->prev = dst->prev;
+    dst->prev->next = src->next;
+
+    /* Chain last element of src with head of dst */
+    src->prev->next = dst;
+    dst->prev = src->prev;
+
     ovs_list_init(src);
 }
 
